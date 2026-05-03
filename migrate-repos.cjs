@@ -95,9 +95,11 @@ function runJson(command, commandArgs, options = {}) {
   return JSON.parse(run(command, commandArgs, options));
 }
 
-function commandExists(command) {
-  const result = runQuiet('sh', ['-lc', `command -v ${command}`]);
-  return result.status === 0;
+function ensureCommandAvailable(command) {
+  const result = runQuiet('which', [command]);
+  if (result.status !== 0) {
+    throw new Error(`required command not found: ${command}`);
+  }
 }
 
 function shellQuote(value) {
@@ -211,16 +213,6 @@ function inferNamespace(args, repos) {
 function hasGlabApiAuth(hostname) {
   const result = runQuiet('glab', ['api', 'user', '--hostname', hostname]);
   return result.status === 0;
-}
-
-function preflightGlab(hostname) {
-  if (!commandExists('glab')) {
-    throw new Error('glab is not installed or not on PATH');
-  }
-
-  if (!hasGlabApiAuth(hostname)) {
-    throw new Error(`glab API auth missing for ${hostname}; run glab auth login first`);
-  }
 }
 
 function getGitHubOwner(args) {
@@ -617,7 +609,16 @@ function executeRepo(state, args, glabAuthReady) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  preflightGlab(args.hostname);
+  ensureCommandAvailable('git');
+  ensureCommandAvailable('gh');
+  ensureCommandAvailable('glab');
+
+  if (!hasGlabApiAuth(args.hostname)) {
+    throw new Error(
+      `glab is installed but not authenticated for ${args.hostname}; run 'glab auth login' first`,
+    );
+  }
+
   const diagnostics = {
     root: args.root,
     hostname: args.hostname,
