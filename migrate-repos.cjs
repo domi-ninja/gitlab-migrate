@@ -65,6 +65,7 @@ function run(command, commandArgs, options = {}) {
   const result = spawnSync(command, commandArgs, {
     cwd: options.cwd,
     encoding: 'utf8',
+    input: options.input,
     env: options.env || process.env,
   });
 
@@ -85,12 +86,18 @@ function runQuiet(command, commandArgs, options = {}) {
   return spawnSync(command, commandArgs, {
     cwd: options.cwd,
     encoding: 'utf8',
+    input: options.input,
     env: options.env || process.env,
   });
 }
 
 function runJson(command, commandArgs, options = {}) {
   return JSON.parse(run(command, commandArgs, options));
+}
+
+function commandExists(command) {
+  const result = runQuiet('sh', ['-lc', `command -v ${command}`]);
+  return result.status === 0;
 }
 
 function shellQuote(value) {
@@ -204,6 +211,16 @@ function inferNamespace(args, repos) {
 function hasGlabApiAuth(hostname) {
   const result = runQuiet('glab', ['api', 'user', '--hostname', hostname]);
   return result.status === 0;
+}
+
+function preflightGlab(hostname) {
+  if (!commandExists('glab')) {
+    throw new Error('glab is not installed or not on PATH');
+  }
+
+  if (!hasGlabApiAuth(hostname)) {
+    throw new Error(`glab API auth missing for ${hostname}; run glab auth login first`);
+  }
 }
 
 function getGitHubOwner(args) {
@@ -534,6 +551,40 @@ ${shellQuote(process.execPath)} ${shellQuote(HELPER_SCRIPT)} --repo "$repo_root"
   fs.chmodSync(hookPath, 0o755);
 }
 
+function syncGithubBannerImmediately(state, args) {
+  if (!state.githubUrl || !isGitLabUrl(state.gitlabSshUrl, args.hostname)) {
+    return;
+  }
+
+  const localSha = runQuiet('git', ['-C', state.path, 'rev-parse', 'HEAD']).stdout.trim();
+  if (!localSha) {
+    throw new Error(`unable to resolve HEAD for immediate banner sync in ${state.name}`);
+  }
+
+  const stdin = `${localSha} refs/heads/${state.branch} 0000000000000000000000000000000000000000 refs/heads/${state.branch}\n`;
+  const commandArgs = [
+    HELPER_SCRIPT,
+    '--repo',
+    state.path,
+    '--remote',
+    'origin',
+    '--url',
+    state.gitlabSshUrl,
+  ];
+
+  if (args.dryRun) {
+    commandArgs.push('--dry-run');
+  }
+
+  const output = run(process.execPath, commandArgs, {
+    cwd: state.path,
+    input: stdin,
+  });
+  if (output) {
+    console.log(output);
+  }
+}
+
 function executeRepo(state, args, glabAuthReady) {
   if (state.blockers.length > 0) {
     return { status: 'blocked', reason: state.blockers.join('; ') };
@@ -557,6 +608,7 @@ function executeRepo(state, args, glabAuthReady) {
     if (!args.skipHooks) {
       installPostPushHook(state, args);
     }
+    syncGithubBannerImmediately(state, args);
     return { status: args.dryRun ? 'dry-run' : 'ok' };
   } catch (error) {
     return { status: 'blocked', reason: error.message };
@@ -565,6 +617,7 @@ function executeRepo(state, args, glabAuthReady) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  preflightGlab(args.hostname);
   const diagnostics = {
     root: args.root,
     hostname: args.hostname,
@@ -586,7 +639,7 @@ function main() {
 
   const repos = listRepos(args.root, args.include);
   const namespace = inferNamespace(args, repos);
-  const glabAuthReady = hasGlabApiAuth(args.hostname);
+  const glabAuthReady = true;
   diagnostics.namespace = namespace;
   diagnostics.glabAuthReady = glabAuthReady;
 
