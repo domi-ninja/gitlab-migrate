@@ -85,7 +85,20 @@ function parseRefLines(stdin) {
         return null;
       }
 
-      const [localSha, localRef, remoteSha, remoteRef] = parts;
+      let localSha;
+      let localRef;
+      let remoteSha;
+      let remoteRef;
+
+      // Support both:
+      // - internal synthesized format: <localSha> <localRef> <remoteSha> <remoteRef>
+      // - real pre-push hook format:   <localRef> <localSha> <remoteRef> <remoteSha>
+      if (parts[0].startsWith('refs/')) {
+        [localRef, localSha, remoteRef, remoteSha] = parts;
+      } else {
+        [localSha, localRef, remoteSha, remoteRef] = parts;
+      }
+
       return { localSha, localRef, remoteSha, remoteRef };
     })
     .filter(Boolean);

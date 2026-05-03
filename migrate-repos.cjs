@@ -504,14 +504,16 @@ function pushBranch(state, args) {
   run('git', commandArgs);
 }
 
-function installPostPushHook(state, args) {
+function installSyncHook(state, args) {
   const hooksDir = run('git', ['-C', state.path, 'rev-parse', '--git-path', 'hooks']);
-  const hookPath = path.join(hooksDir, 'post-push');
-  const backupPath = path.join(hooksDir, 'post-push.pre-gitlab-migrate');
+  const hookName = 'pre-push';
+  const hookPath = path.join(hooksDir, hookName);
+  const backupPath = path.join(hooksDir, `${hookName}.pre-gitlab-migrate`);
+  const legacyPostPushPath = path.join(hooksDir, 'post-push');
 
   const hookBody = `#!/bin/sh
 ${HOOK_MARKER}
-backup_hook="$(dirname "$0")/post-push.pre-gitlab-migrate"
+backup_hook="$(dirname "$0")/${hookName}.pre-gitlab-migrate"
 if [ -x "$backup_hook" ]; then
   "$backup_hook" "$@" || true
 fi
@@ -523,7 +525,7 @@ ${shellQuote(process.execPath)} ${shellQuote(HELPER_SCRIPT)} --repo "$repo_root"
 `;
 
   if (args.dryRun) {
-    console.log(`[dry-run] install post-push hook in ${state.name}`);
+    console.log(`[dry-run] install pre-push hook in ${state.name}`);
     return;
   }
 
@@ -541,6 +543,13 @@ ${shellQuote(process.execPath)} ${shellQuote(HELPER_SCRIPT)} --repo "$repo_root"
 
   fs.writeFileSync(hookPath, hookBody, 'utf8');
   fs.chmodSync(hookPath, 0o755);
+
+  if (fs.existsSync(legacyPostPushPath)) {
+    const legacy = fs.readFileSync(legacyPostPushPath, 'utf8');
+    if (legacy.includes(HOOK_MARKER)) {
+      fs.rmSync(legacyPostPushPath, { force: true });
+    }
+  }
 }
 
 function syncGithubBannerImmediately(state, args) {
@@ -598,7 +607,7 @@ function executeRepo(state, args, glabAuthReady) {
     ensureGitLabProject(state, args);
     pushBranch(state, args);
     if (!args.skipHooks) {
-      installPostPushHook(state, args);
+      installSyncHook(state, args);
     }
     syncGithubBannerImmediately(state, args);
     return { status: args.dryRun ? 'dry-run' : 'ok' };
