@@ -1,3 +1,7 @@
+<!-- moved-to-codeberg -->
+> This repository moved to [Codeberg](https://codeberg.org/domi-ninja/gitlab-migrate).
+>
+> I moved off GitHub because it became unreliable after the Microsoft acquisition.
 # gitlab-migrate
 
 Small CommonJS scripts for migrating repositories from GitHub to GitLab.
